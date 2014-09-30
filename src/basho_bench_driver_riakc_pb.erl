@@ -46,7 +46,10 @@
                  timeout_read,
                  timeout_write,
                  timeout_listkeys,
-                 timeout_mapreduce
+                 timeout_mapreduce,
+                 target_ip,
+                 target_port,
+                 connect_options
                }).
 
 -define(TIMEOUT_GENERAL, 62*1000).              % Riak PB default + 2 sec
@@ -116,7 +119,10 @@ new(Id) ->
                           timeout_read = get_timeout(pb_timeout_read),
                           timeout_write = get_timeout(pb_timeout_write),
                           timeout_listkeys = get_timeout(pb_timeout_listkeys),
-                          timeout_mapreduce = get_timeout(pb_timeout_mapreduce)
+                          timeout_mapreduce = get_timeout(pb_timeout_mapreduce),
+                          connect_options = get_connect_options(),
+                          target_ip = TargetIp, 
+                          target_port = TargetPort
                         }};
         {error, Reason2} ->
             ?FAIL_MSG("Failed to connect riakc_pb_socket to ~p:~p: ~p\n",
@@ -381,6 +387,17 @@ run(delete, KeyGen, _ValueGen, State) ->
         {error, disconnected} ->
             run(delete, KeyGen, _ValueGen, State);
         {error, Reason} ->
+            {error, Reason, State}
+    end;
+run(reconnect, _Keygen, _ValueGen, State) ->
+    OldClientPid = State#state.pid,
+    spawn(fun() -> riakc_pb_socket:stop(OldClientPid) end),
+    case riakc_pb_socket:start_link(State#state.target_ip, State#state.target_port, State#state.connect_options) of 
+        {ok, Pid} ->
+            {ok, State#state{pid = Pid}};
+        {error, Reason} ->
+            lager:error("Failed to reconnect to Riak protocol buffers, {~p, ~p} for reason: ~p", 
+                [State#state.target_ip, State#state.target_port, Reason]),
             {error, Reason, State}
     end;
 run(listkeys, _KeyGen, _ValueGen, State) ->
